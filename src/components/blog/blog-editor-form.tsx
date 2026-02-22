@@ -82,17 +82,20 @@ export function BlogEditorForm({ initialData }: BlogEditorFormProps) {
     };
 
     startTransition(async () => {
-      try {
-        if (isEditing) {
-          await updateBlog(initialData.id, formData);
+      if (isEditing) {
+        const result = await updateBlog(initialData.id, formData);
+        if (result.ok) {
+          router.push("/admin/blogs");
         } else {
-          await createBlog(formData);
+          setError(result.error);
         }
-        router.push("/admin/blogs");
-      } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Something went wrong"
-        );
+      } else {
+        const result = await createBlog(formData);
+        if (result.ok) {
+          router.push("/admin/blogs");
+        } else {
+          setError(result.error);
+        }
       }
     });
   }

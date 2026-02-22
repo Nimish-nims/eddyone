@@ -110,9 +110,9 @@ export async function storagePutBlog(blog: BlogPost): Promise<void> {
     await ensureBlogsDir();
     const filePath = path.join(FS_BLOGS_DIR, `${blog.id}.json`);
     await fs.writeFile(filePath, body, "utf-8");
-  } catch (err) {
+  } catch {
     throw new Error(
-      "Could not save blog. On Vercel, add a Blob store and set BLOB_READ_WRITE_TOKEN in Environment Variables."
+      "Blog storage is not available. On Vercel: go to Storage → Create Database → Blob, then add BLOB_READ_WRITE_TOKEN to Environment Variables and redeploy."
     );
   }
 }

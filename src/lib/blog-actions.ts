@@ -35,62 +35,82 @@ export async function getBlogBySlug(slug: string): Promise<BlogPost | null> {
   return all.find((blog) => blog.slug === slug) ?? null;
 }
 
-// ── Write Operations ────────────────────────────────────
+// ── Write Operations (return results to avoid generic Server Components error in production) ───
 
-export async function createBlog(data: BlogFormData): Promise<BlogPost> {
-  const now = new Date().toISOString();
-  const blog: BlogPost = {
-    id: generateId(),
-    slug: generateSlug(data.title),
-    title: data.title,
-    content: data.content,
-    excerpt: generateExcerpt(data.content),
-    tags: data.tags,
-    coverImage: data.coverImage,
-    status: data.status,
-    createdAt: now,
-    updatedAt: now,
-  };
+export type CreateBlogResult =
+  | { ok: true; blog: BlogPost }
+  | { ok: false; error: string };
 
-  await storagePutBlog(blog);
+export async function createBlog(data: BlogFormData): Promise<CreateBlogResult> {
+  try {
+    const now = new Date().toISOString();
+    const blog: BlogPost = {
+      id: generateId(),
+      slug: generateSlug(data.title),
+      title: data.title,
+      content: data.content,
+      excerpt: generateExcerpt(data.content),
+      tags: data.tags,
+      coverImage: data.coverImage,
+      status: data.status,
+      createdAt: now,
+      updatedAt: now,
+    };
 
-  revalidatePath("/blogs");
-  revalidatePath("/admin/blogs");
+    await storagePutBlog(blog);
 
-  return blog;
+    revalidatePath("/blogs");
+    revalidatePath("/admin/blogs");
+
+    return { ok: true, blog };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Could not save blog. Please try again.";
+    return { ok: false, error: message };
+  }
 }
+
+export type UpdateBlogResult =
+  | { ok: true; blog: BlogPost }
+  | { ok: false; error: string };
 
 export async function updateBlog(
   id: string,
   data: BlogFormData
-): Promise<BlogPost> {
-  const existing = await getBlogById(id);
-  if (!existing) {
-    throw new Error(`Blog with id "${id}" not found`);
+): Promise<UpdateBlogResult> {
+  try {
+    const existing = await getBlogById(id);
+    if (!existing) {
+      return { ok: false, error: `Blog with id "${id}" not found` };
+    }
+
+    const titleChanged = existing.title !== data.title;
+
+    const updated: BlogPost = {
+      ...existing,
+      title: data.title,
+      content: data.content,
+      excerpt: generateExcerpt(data.content),
+      tags: data.tags,
+      coverImage: data.coverImage,
+      status: data.status,
+      slug: titleChanged ? generateSlug(data.title) : existing.slug,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await storagePutBlog(updated);
+
+    revalidatePath("/blogs");
+    revalidatePath(`/blogs/${existing.slug}`);
+    revalidatePath(`/blogs/${updated.slug}`);
+    revalidatePath("/admin/blogs");
+
+    return { ok: true, blog: updated };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Could not update blog. Please try again.";
+    return { ok: false, error: message };
   }
-
-  const titleChanged = existing.title !== data.title;
-
-  const updated: BlogPost = {
-    ...existing,
-    title: data.title,
-    content: data.content,
-    excerpt: generateExcerpt(data.content),
-    tags: data.tags,
-    coverImage: data.coverImage,
-    status: data.status,
-    slug: titleChanged ? generateSlug(data.title) : existing.slug,
-    updatedAt: new Date().toISOString(),
-  };
-
-  await storagePutBlog(updated);
-
-  revalidatePath("/blogs");
-  revalidatePath(`/blogs/${existing.slug}`);
-  revalidatePath(`/blogs/${updated.slug}`);
-  revalidatePath("/admin/blogs");
-
-  return updated;
 }
 
 export async function deleteBlog(id: string): Promise<void> {
