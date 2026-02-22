@@ -1,4 +1,3 @@
-import path from "path";
 import crypto from "crypto";
 
 // ── Types ──────────────────────────────────────────────
@@ -25,10 +24,6 @@ export interface BlogFormData {
   coverImage: string;
   status: BlogStatus;
 }
-
-// ── Constants ──────────────────────────────────────────
-
-export const BLOGS_DIR = path.join(process.cwd(), "content", "blogs");
 
 // ── Helpers ────────────────────────────────────────────
 

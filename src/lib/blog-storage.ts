@@ -1,133 +1,103 @@
 /**
- * Blog storage: uses Vercel Blob when BLOB_READ_WRITE_TOKEN is set (e.g. on Vercel),
- * otherwise uses the local filesystem (content/blogs) for development.
+ * Blog storage backed by Supabase.
+ *
+ * Table: blogs (see SQL in plan file or README)
+ * Columns use snake_case; BlogPost interface uses camelCase.
  */
 
-import fs from "fs/promises";
-import path from "path";
-import { list, get, put, del } from "@vercel/blob";
+import { supabase } from "./supabase";
 import type { BlogPost } from "./blog";
 
-const BLOB_PREFIX = "blogs";
-const FS_BLOGS_DIR = path.join(process.cwd(), "content", "blogs");
+// ── Row ↔ BlogPost mapping ────────────────────────────
 
-function useBlobStorage(): boolean {
-  return typeof process.env.BLOB_READ_WRITE_TOKEN === "string" && process.env.BLOB_READ_WRITE_TOKEN.length > 0;
+interface BlogRow {
+  id: string;
+  slug: string;
+  title: string;
+  content: string;
+  excerpt: string;
+  tags: string[];
+  cover_image: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
 }
 
-async function ensureBlogsDir(): Promise<void> {
-  if (useBlobStorage()) return;
-  await fs.mkdir(FS_BLOGS_DIR, { recursive: true });
+function rowToPost(row: BlogRow): BlogPost {
+  return {
+    id: row.id,
+    slug: row.slug,
+    title: row.title,
+    content: row.content,
+    excerpt: row.excerpt,
+    tags: row.tags ?? [],
+    coverImage: row.cover_image,
+    status: row.status as BlogPost["status"],
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
-function blobPathname(id: string): string {
-  return `${BLOB_PREFIX}/${id}.json`;
+function postToRow(blog: BlogPost): BlogRow {
+  return {
+    id: blog.id,
+    slug: blog.slug,
+    title: blog.title,
+    content: blog.content,
+    excerpt: blog.excerpt,
+    tags: blog.tags,
+    cover_image: blog.coverImage,
+    status: blog.status,
+    created_at: blog.createdAt,
+    updated_at: blog.updatedAt,
+  };
 }
 
-/** Read stream into string (for Vercel Blob get) */
-async function streamToText(stream: ReadableStream<Uint8Array>): Promise<string> {
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value) chunks.push(value);
-  }
-  const buffer = Buffer.concat(chunks);
-  return buffer.toString("utf-8");
-}
-
-// ── Public API (same shape for both backends) ───────────────────────────────
+// ── Public API (same shape as before) ──────────────────
 
 export async function storageListBlogs(): Promise<BlogPost[]> {
-  if (useBlobStorage()) {
-    const { blobs } = await list({ prefix: `${BLOB_PREFIX}/` });
-    const blogs = await Promise.all(
-      blobs.map(async (b) => {
-        const result = await get(b.pathname, { access: "private" });
-        if (!result || result.statusCode !== 200 || !result.stream) return null;
-        const text = await streamToText(result.stream);
-        return JSON.parse(text) as BlogPost;
-      })
-    );
-    const valid = blogs.filter((b): b is BlogPost => b !== null);
-    return valid.sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
+  const { data, error } = await supabase
+    .from("blogs")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Supabase storageListBlogs error:", error.message);
+    return [];
   }
 
-  await ensureBlogsDir();
-  const files = await fs.readdir(FS_BLOGS_DIR);
-  const jsonFiles = files.filter((f) => f.endsWith(".json"));
-  const blogs = await Promise.all(
-    jsonFiles.map(async (file) => {
-      const content = await fs.readFile(path.join(FS_BLOGS_DIR, file), "utf-8");
-      return JSON.parse(content) as BlogPost;
-    })
-  );
-  return blogs.sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
+  return (data as BlogRow[]).map(rowToPost);
 }
 
 export async function storageGetBlog(id: string): Promise<BlogPost | null> {
-  if (useBlobStorage()) {
-    try {
-      const result = await get(blobPathname(id), { access: "private" });
-      if (!result || result.statusCode !== 200 || !result.stream) return null;
-      const text = await streamToText(result.stream);
-      return JSON.parse(text) as BlogPost;
-    } catch {
-      return null;
-    }
-  }
+  const { data, error } = await supabase
+    .from("blogs")
+    .select("*")
+    .eq("id", id)
+    .single();
 
-  await ensureBlogsDir();
-  try {
-    const filePath = path.join(FS_BLOGS_DIR, `${id}.json`);
-    const content = await fs.readFile(filePath, "utf-8");
-    return JSON.parse(content) as BlogPost;
-  } catch {
-    return null;
-  }
+  if (error || !data) return null;
+
+  return rowToPost(data as BlogRow);
 }
 
 export async function storagePutBlog(blog: BlogPost): Promise<void> {
-  const body = JSON.stringify(blog, null, 2);
+  const row = postToRow(blog);
 
-  if (useBlobStorage()) {
-    await put(blobPathname(blog.id), body, {
-      access: "private",
-      contentType: "application/json",
-      addRandomSuffix: false,
-      allowOverwrite: true,
-    });
-    return;
-  }
+  const { error } = await supabase.from("blogs").upsert(row, {
+    onConflict: "id",
+  });
 
-  try {
-    await ensureBlogsDir();
-    const filePath = path.join(FS_BLOGS_DIR, `${blog.id}.json`);
-    await fs.writeFile(filePath, body, "utf-8");
-  } catch {
-    throw new Error(
-      "Blog storage is not available. On Vercel: go to Storage → Create Database → Blob, then add BLOB_READ_WRITE_TOKEN to Environment Variables and redeploy."
-    );
+  if (error) {
+    console.error("Supabase storagePutBlog error:", error.message);
+    throw new Error(`Failed to save blog: ${error.message}`);
   }
 }
 
 export async function storageDeleteBlog(id: string): Promise<void> {
-  if (useBlobStorage()) {
-    await del(blobPathname(id));
-    return;
-  }
+  const { error } = await supabase.from("blogs").delete().eq("id", id);
 
-  try {
-    await ensureBlogsDir();
-    const filePath = path.join(FS_BLOGS_DIR, `${id}.json`);
-    await fs.unlink(filePath);
-  } catch {
-    // Ignore if file missing
+  if (error) {
+    console.error("Supabase storageDeleteBlog error:", error.message);
   }
 }

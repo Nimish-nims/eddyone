@@ -12,7 +12,7 @@ export default async function BlogsPage() {
   const blogs = await getPublishedBlogs();
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-16">
+    <div className="mx-auto max-w-6xl px-6 py-16">
       {/* Theme toggle */}
       <div className="flex justify-end mb-4">
         <ThemeToggle />

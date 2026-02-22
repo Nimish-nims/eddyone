@@ -45,7 +45,7 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
   });
 
   return (
-    <article className="mx-auto max-w-3xl px-6 py-16">
+    <article className="mx-auto max-w-5xl px-6 py-16">
       {/* Top bar */}
       <div className="mb-8 flex items-center justify-between">
         <Button variant="ghost" size="sm" className="gap-2" asChild>
