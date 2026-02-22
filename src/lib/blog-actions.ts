@@ -1,42 +1,24 @@
 "use server";
 
-import fs from "fs/promises";
-import path from "path";
 import { revalidatePath } from "next/cache";
 import {
   BlogPost,
   BlogFormData,
-  BLOGS_DIR,
   generateId,
   generateSlug,
   generateExcerpt,
 } from "./blog";
-
-// ── Internal Helpers ───────────────────────────────────
-
-async function ensureBlogsDir() {
-  await fs.mkdir(BLOGS_DIR, { recursive: true });
-}
+import {
+  storageListBlogs,
+  storageGetBlog,
+  storagePutBlog,
+  storageDeleteBlog,
+} from "./blog-storage";
 
 // ── Read Operations ────────────────────────────────────
 
 export async function getAllBlogs(): Promise<BlogPost[]> {
-  await ensureBlogsDir();
-
-  const files = await fs.readdir(BLOGS_DIR);
-  const jsonFiles = files.filter((f) => f.endsWith(".json"));
-
-  const blogs = await Promise.all(
-    jsonFiles.map(async (file) => {
-      const content = await fs.readFile(path.join(BLOGS_DIR, file), "utf-8");
-      return JSON.parse(content) as BlogPost;
-    })
-  );
-
-  return blogs.sort(
-    (a, b) =>
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
+  return storageListBlogs();
 }
 
 export async function getPublishedBlogs(): Promise<BlogPost[]> {
@@ -45,15 +27,7 @@ export async function getPublishedBlogs(): Promise<BlogPost[]> {
 }
 
 export async function getBlogById(id: string): Promise<BlogPost | null> {
-  await ensureBlogsDir();
-
-  try {
-    const filePath = path.join(BLOGS_DIR, `${id}.json`);
-    const content = await fs.readFile(filePath, "utf-8");
-    return JSON.parse(content) as BlogPost;
-  } catch {
-    return null;
-  }
+  return storageGetBlog(id);
 }
 
 export async function getBlogBySlug(slug: string): Promise<BlogPost | null> {
@@ -61,11 +35,9 @@ export async function getBlogBySlug(slug: string): Promise<BlogPost | null> {
   return all.find((blog) => blog.slug === slug) ?? null;
 }
 
-// ── Write Operations ───────────────────────────────────
+// ── Write Operations ────────────────────────────────────
 
 export async function createBlog(data: BlogFormData): Promise<BlogPost> {
-  await ensureBlogsDir();
-
   const now = new Date().toISOString();
   const blog: BlogPost = {
     id: generateId(),
@@ -80,8 +52,7 @@ export async function createBlog(data: BlogFormData): Promise<BlogPost> {
     updatedAt: now,
   };
 
-  const filePath = path.join(BLOGS_DIR, `${blog.id}.json`);
-  await fs.writeFile(filePath, JSON.stringify(blog, null, 2), "utf-8");
+  await storagePutBlog(blog);
 
   revalidatePath("/blogs");
   revalidatePath("/admin/blogs");
@@ -112,8 +83,7 @@ export async function updateBlog(
     updatedAt: new Date().toISOString(),
   };
 
-  const filePath = path.join(BLOGS_DIR, `${id}.json`);
-  await fs.writeFile(filePath, JSON.stringify(updated, null, 2), "utf-8");
+  await storagePutBlog(updated);
 
   revalidatePath("/blogs");
   revalidatePath(`/blogs/${existing.slug}`);
@@ -124,10 +94,7 @@ export async function updateBlog(
 }
 
 export async function deleteBlog(id: string): Promise<void> {
-  await ensureBlogsDir();
-
-  const filePath = path.join(BLOGS_DIR, `${id}.json`);
-  await fs.unlink(filePath);
+  await storageDeleteBlog(id);
 
   revalidatePath("/blogs");
   revalidatePath("/admin/blogs");
