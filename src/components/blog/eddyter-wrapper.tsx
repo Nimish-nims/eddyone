@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import {
   ConfigurableEditorWithAuth,
   EditorProvider,
@@ -22,7 +23,22 @@ export default function EddyterWrapper({
   initialContent,
   onChange,
 }: EddyterWrapperProps) {
-  const apiKey = process.env.NEXT_PUBLIC_EDITOR_API_KEY ?? "";
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const apiKey = typeof window !== "undefined" ? (process.env.NEXT_PUBLIC_EDITOR_API_KEY ?? "") : "";
+
+  // Never render Eddyter on server or before hydration (avoids SSR / production render errors)
+  if (!mounted || typeof window === "undefined") {
+    return (
+      <div className="flex min-h-[500px] items-center justify-center rounded-lg border bg-muted/30">
+        <div className="text-sm text-muted-foreground">Loading editor...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-[500px] w-full max-w-full overflow-hidden rounded-lg border">
